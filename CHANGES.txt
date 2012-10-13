@@ -4,8 +4,11 @@ Changelog
 1.2a2 (unreleased)
 ------------------
 
+- Moved plone.principalsource in to the plone.app.users package.
+  [phgross]
+
 - Update tests. We now check if the user can add and delete the portrait himself.
-  [tschanzt] 
+  [tschanzt]
 
 - Fix to not break if passwords contain non-ASCII characters.
   This closes https://dev.plone.org/ticket/13114

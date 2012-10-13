@@ -10,6 +10,24 @@
     <utility provides=".userdataschema.IUserDataSchemaProvider"
              factory=".userdataschema.UserDataSchemaProvider"/>
 
+    <utility
+        provides="zope.schema.interfaces.IVocabularyFactory"
+        component=".source.PrincipalVocabularyFactory"
+        name="plone.app.users.Principals"
+        />
+
+    <utility
+        provides="zope.schema.interfaces.IVocabularyFactory"
+        component=".source.UsersVocabularyFactory"
+        name="plone.app.users.Users"
+        />
+
+    <utility
+        provides="zope.schema.interfaces.IVocabularyFactory"
+        component=".source.GroupsVocabularyFactory"
+        name="plone.app.users.Groups"
+        />
+
     <include package=".browser" />
 
     <browser:page
