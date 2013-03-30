@@ -1,7 +1,7 @@
 Changelog
 =========
 
-1.2a2 (unreleased)
+1.3a1 (unreleased)
 ------------------
 
 - Moved plone.principalsource in to the plone.app.users package.
@@ -9,6 +9,13 @@ Changelog
 
 - Update tests. We now check if the user can add and delete the portrait himself.
   [tschanzt]
+
+1.2a2 (unreleased)
+------------------
+
+- Added user timezone selection to user preferecnes and a dependency on
+  plone.app.event for vocabulary for user timezone selection.
+  [seanupton]
 
 - Fix email as login validation in the personalize form (UserDataPanel).
   This is for the case when email is used as login.  It checked that a
