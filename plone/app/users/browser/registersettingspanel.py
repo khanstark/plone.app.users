@@ -2,20 +2,24 @@ from Products.CMFCore.utils import getToolByName
 from Products.CMFPlone import PloneMessageFactory as _
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
 from Products.statusmessages.interfaces import IStatusMessage
-from plone.protect import CheckAuthenticator
 from z3c.form import button
 from z3c.form import field
 from z3c.form import form
 from zope.component import getMultiAdapter
 from plone.app.users.schema import IRegistrationSettingsSchema
 from z3c.form.browser.orderedselect import OrderedSelectFieldWidget
+try:
+    import plone.protect.auto
+    MANUAL_CSRF = False
+except:
+    MANUAL_CSRF = True
 
 
 class RegistrationControlPanel(form.Form):
     label = _(u"Registration settings")
     description = _(u"Registration settings for this site.")
     form_name = _(u"Registration settings")
-    enableCSRFProtection = True
+    enableCSRFProtection = MANUAL_CSRF
 
     formErrorsMessage = _('There were errors.')
     template = ViewPageTemplateFile('memberregistration.pt')
@@ -30,9 +34,6 @@ class RegistrationControlPanel(form.Form):
 
     @button.buttonAndHandler(_(u'label_save', default=u'Save'), name='save')
     def action_save(self, action):
-        # CSRF protection
-        CheckAuthenticator(self.request)
-
         data, errors = self.extractData()
         if errors:
             IStatusMessage(self.request).addStatusMessage(
