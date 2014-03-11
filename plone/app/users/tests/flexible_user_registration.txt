@@ -7,7 +7,12 @@ Testing the flexible user registration
     >>> import hmac
     >>> from hashlib import sha1
     >>> def getAuth():
-    ...     secret = getUtility(IKeyManager)[u'_system'].current
+    ...     manager = getUtility(IKeyManager)
+    ...     try:
+    ...         ring = manager[u'_forms']
+    ...     except:
+    ...         ring = manager[u'_system']
+    ...     secret = ring.current
     ...     return hmac.new(secret, 'admin', sha1).hexdigest()
 
 
