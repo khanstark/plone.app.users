@@ -164,14 +164,15 @@ def getGroupIds(context):
     for g in groups:
         if g.id == 'AuthenticatedUsers':
             continue
+        g_id = safe_unicode(g.id)
         is_zope_manager = getSecurityManager().checkPermission(
             ManagePortal, context)
         if 'Manager' in g.getRoles() and not is_zope_manager:
             continue
 
         group_title = safe_unicode(g.getGroupTitleOrName())
-        if group_title != g.id:
-            title = u'%s (%s)' % (group_title, g.id)
+        if group_title != g_id:
+            title = u'%s (%s)' % (group_title, g_id)
         else:
             title = group_title
         terms.append(SimpleTerm(g.id, g.id, title))
