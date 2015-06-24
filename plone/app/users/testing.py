@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
+from plone.app.testing import applyProfile
 from plone.app.robotframework.testing import AUTOLOGIN_LIBRARY_FIXTURE
-from plone.app.testing.bbb import PTC_FIXTURE
+from plone.app.testing import PLONE_FIXTURE
 from plone.app.testing import PloneSandboxLayer
 from plone.app.testing.layers import FunctionalTesting
 from plone.testing import z2
@@ -9,11 +10,15 @@ import doctest
 
 
 class PloneAppUsersLayer(PloneSandboxLayer):
-    defaultBases = (PTC_FIXTURE, )
+
+    defaultBases = (PLONE_FIXTURE, )
 
     def setUpZope(self, app, configurationContext):
         import plone.app.users
         self.loadZCML(package=plone.app.users)
+
+    def setUpPloneSite(self, portal):
+        applyProfile(portal, 'plone.app.users:default')
 
 PLONE_APP_USERS_FIXTURE = PloneAppUsersLayer()
 PLONE_APP_USERS_FUNCTIONAL_TESTING = FunctionalTesting(

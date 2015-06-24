@@ -1,18 +1,18 @@
 from pkg_resources import resource_stream
 from plone.app.testing import TEST_USER_NAME, TEST_USER_PASSWORD, TEST_USER_ID
-from plone.app.testing.bbb import PloneTestCase
 from plone.app.users.setuphandlers import import_schema
 from plone.app.users.testing import PLONE_APP_USERS_FUNCTIONAL_TESTING
 from plone.testing.z2 import Browser
 from Products.GenericSetup.tests.common import DummyImportContext
 import transaction
+import unittest
 
 
-class TestSchema(PloneTestCase):
+class TestSchema(unittest.TestCase):
 
     layer = PLONE_APP_USERS_FUNCTIONAL_TESTING
 
-    def afterSetUp(self):
+    def setUp(self):
         xml = """<model xmlns:lingua="http://namespaces.plone.org/supermodel/lingua" xmlns:users="http://namespaces.plone.org/supermodel/users" xmlns:form="http://namespaces.plone.org/supermodel/form" xmlns:i18n="http://xml.zope.org/namespaces/i18n" xmlns:security="http://namespaces.plone.org/supermodel/security" xmlns:marshal="http://namespaces.plone.org/supermodel/marshal" xmlns="http://namespaces.plone.org/supermodel/schema" i18n:domain="plone">
   <schema name="member-fields">
     <field name="home_page" type="zope.schema.URI" users:forms="In User Profile">
@@ -96,13 +96,15 @@ class TestSchema(PloneTestCase):
   </schema>
 </model>
 """
+        self.portal = self.layer['portal']
+        self.request = self.layer['request']
+
         context = DummyImportContext(self.portal, purge=False)
         context._files = {'userschema.xml': xml}
         import_schema(context)
         transaction.commit()
 
         self.browser = Browser(self.layer['app'])
-        self.request = self.layer['request']
 
     def test_schema_types(self):
         self.browser.open('http://nohost/plone/')
