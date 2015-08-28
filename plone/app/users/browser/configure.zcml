@@ -22,6 +22,14 @@
       />
 
     <browser:page
+      name="register-confirm-email"
+      for="plone.app.layout.navigation.interfaces.INavigationRoot"
+      class=".register.EmailConfirmation"
+      permission="cmf.AddPortalMember"
+      template="confirm-email.pt"
+      />
+
+    <browser:page
       name="new-user"
       for="plone.app.layout.navigation.interfaces.INavigationRoot"
       class=".register.AddUserForm"

@@ -187,3 +187,9 @@ class IRegistrationSettingsSchema(Interface):
 class IUserSchemaProvider(Interface):
 
     pass
+
+
+class IHiddenVerifiedEmail(Interface):
+
+    confirmed_email = schema.TextLine()
+    confirmed_code = schema.TextLine()

@@ -1,5 +1,24 @@
 # -*- coding: utf-8 -*-
+from datetime import datetime
+from hashlib import sha1
+import logging
+import random
+from time import time
+
+from ..schema import (
+    IRegisterSchema,
+    IAddUserSchema,
+    ICombinedRegisterSchema,
+    IHiddenVerifiedEmail
+)
+from ..utils import (
+    notifyWidgetActionExecutionError,
+    uuid_userid_generator,
+)
+from .account import AccountPanelSchemaAdapter
+from .schemaeditor import getFromBaseSchema
 from AccessControl import getSecurityManager
+from BTrees.OOBTree import OOBTree
 from Products.CMFCore.interfaces import ISiteRoot
 from Products.CMFCore.permissions import ManagePortal
 from Products.CMFCore.utils import getToolByName
@@ -10,8 +29,13 @@ from Products.CMFPlone.utils import normalizeString
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
 from Products.statusmessages.interfaces import IStatusMessage
 from ZODB.POSException import ConflictError
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from plone.app.users.browser.interfaces import ILoginNameGenerator
+from plone.app.users.browser.interfaces import IUserIdGenerator
+from plone.app.users.schema import checkEmailAddress
+from plone.app.z3cform.interfaces import ICaptcha
 from plone.autoform.form import AutoExtensibleForm
-from plone.autoform.interfaces import OMITTED_KEY
 from plone.protect import CheckAuthenticator
 from plone.registry.interfaces import IRegistry
 from z3c.form import button
@@ -20,6 +44,7 @@ from z3c.form import form
 from z3c.form.browser.checkbox import CheckBoxFieldWidget
 from z3c.form.interfaces import DISPLAY_MODE
 from zExceptions import Forbidden
+from zope import schema
 from zope.component import (
     getUtility,
     queryUtility,
@@ -27,26 +52,94 @@ from zope.component import (
     provideAdapter,
     getMultiAdapter)
 from zope.component.hooks import getSite
+from zope.interface import Invalid
 from zope.schema import getFieldNames
-import logging
+from z3c.form.interfaces import HIDDEN_MODE
+from plone.z3cform.fieldsets.utils import move
+from plone.z3cform.fieldsets import utils
 
-from ..schema import (
-    IRegisterSchema,
-    IAddUserSchema,
-    ICombinedRegisterSchema
-)
-from ..utils import (
-    notifyWidgetActionExecutionError,
-    uuid_userid_generator,
-)
-from .account import AccountPanelSchemaAdapter
-from .schemaeditor import getFromBaseSchema
+try:
+    random = random.SystemRandom()
+except NotImplementedError:
+    pass
 
-from plone.app.users.browser.interfaces import ILoginNameGenerator
-from plone.app.users.browser.interfaces import IUserIdGenerator
+
+class NonExistentException(Exception):
+    """Dummy exception for usage instead of exceptions from missing plugins.
+    """
+
+
+try:
+    from plone.app.z3cform.captcha import WrongNorobotsAnswer
+except ImportError:
+    WrongNorobotsAnswer = NonExistentException
+
+try:
+    from plone.app.z3cform.captcha import WrongCaptchaCode
+except ImportError:
+    WrongCaptchaCode = NonExistentException
 
 # Number of retries for creating a user id like bob-jones-42:
 RENAME_AFTER_CREATION_ATTEMPTS = 100
+
+
+def makeRandomCode(length=255):
+    return sha1(sha1(str(
+        random.random())).hexdigest()[:5] + str(
+        datetime.now().microsecond)).hexdigest()[:length]
+
+
+def shouldBeEmpty(value):
+    if value:
+        raise Invalid(_(u"This should not have a value"))
+
+
+class Storage(object):
+
+    def __init__(self, context):
+        self.context = context
+        try:
+            self._data = context._registration_confirmations
+        except AttributeError:
+            self._data = context._registration_confirmations = OOBTree()
+
+    def add(self, email):
+        self.clean()
+        email = email.lower()
+        data = {
+            'created': time(),
+            'code': makeRandomCode(100)
+        }
+        self._data[email] = data
+        return data
+
+    def get(self, email):
+        return self._data.get(email.lower())
+
+    def clean(self):
+        now = time()
+        delete = []
+        for email, item in self._data.items():
+            if not item:
+                delete.append(email)
+                continue
+            created = item['created']
+            # delete all older than 1 hour
+            if int((now - created) / 60 / 60) > 1:
+                delete.append(email)
+        for code in delete:
+            del self._data[code]
+
+
+class IEmailConfirmation(ICaptcha):
+    email = schema.ASCIILine(
+        title=_(u'label_email', default=u'E-mail'),
+        description=u'',
+        required=True,
+        constraint=checkEmailAddress)
+    username = schema.ASCIILine(
+        required=False,
+        constraint=shouldBeEmpty)
 
 
 def getRegisterSchema():
@@ -596,6 +689,10 @@ class RegistrationForm(BaseRegistrationForm):
             defaultFields = defaultFields.omit('mail_me')
 
         self.fields = defaultFields
+        self.add(IHiddenVerifiedEmail, prefix="")
+        utils.add(self, IHiddenVerifiedEmail, prefix='')
+        self.fields['confirmed_email'].mode = HIDDEN_MODE
+        self.fields['confirmed_code'].mode = HIDDEN_MODE
 
     def updateWidgets(self):
         if not self.showForm:
@@ -723,3 +820,86 @@ class AddUserForm(BaseRegistrationForm):
             '/@@usergroup-userprefs?searchstring=' + user_id)
 
         self._finishedRegister = True
+
+
+class EmailConfirmation(AutoExtensibleForm, form.Form):
+    label = _(u"Confirm your email address")
+    description = _(u"Before you can begin the registration process, you need to "
+                    u"verify your email address.")
+    formErrorsMessage = _('There were errors.')
+    ignoreContext = True
+    schema = IEmailConfirmation
+    enableCSRFProtection = True
+    template = ViewPageTemplateFile('confirm-email.pt')
+    sent = False
+
+    def __init__(self, context, request):
+        super(EmailConfirmation, self).__init__(context, request)
+        registry = queryUtility(IRegistry)
+        settings = registry.forInterface(ISecuritySchema, check=False, prefix='plone')
+        self.captcha = settings.captcha
+        portal_membership = getToolByName(self.context, 'portal_membership')
+        self.isAnon = portal_membership.isAnonymousUser()
+
+    def send_mail(self, email, item):
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = _(u"Email Confirmation")
+        msg['From'] = getUtility(ISiteRoot).email_from_address
+        msg['To'] = email
+        url = '%s/@@register?confirmed_email=%s&confirmed_code=%s' % (
+            self.context.absolute_url(), email, item['code'])
+        text = """
+Copy and paste this url into your web browser to confirm your address: %s
+""" % url
+        html = """
+<p>You have requested registration, please
+<a href="%s">confirm your email address by clicking on this link</a>.
+</p>
+<p>
+If that does not work, copy and paste this urls into your web browser: %s
+</p>""" % (url, url)
+        part1 = MIMEText(text, 'plain')
+        part2 = MIMEText(html, 'html')
+        msg.attach(part1)
+        msg.attach(part2)
+        mailhost = getToolByName(self.context, 'MailHost')
+        mailhost.send(msg.as_string())
+
+    def updateFields(self):
+        super(EmailConfirmation, self).updateFields()
+        if self.captcha != 'disabled' and self.isAnon:
+            # Add a captcha field if captcha is enabled in the registry
+            if self.captcha == 'captcha':
+                from plone.formwidget.captcha import CaptchaFieldWidget
+                self.fields['captcha'].widgetFactory = CaptchaFieldWidget
+            elif self.captcha == 'recaptcha':
+                from plone.formwidget.recaptcha import ReCaptchaFieldWidget
+                self.fields['captcha'].widgetFactory = ReCaptchaFieldWidget
+            elif self.captcha == 'norobots':
+                from collective.z3cform.norobots import NorobotsFieldWidget
+                self.fields['captcha'].widgetFactory = NorobotsFieldWidget
+            else:
+                self.fields['captcha'].mode = HIDDEN_MODE
+        else:
+            self.fields['captcha'].mode = HIDDEN_MODE
+
+        move(self, 'email', before='*')
+
+    def updateWidgets(self):
+        super(EmailConfirmation, self).updateWidgets()
+        # the username field here is ONLY for honey pot.
+        # if a value IS present, throw an error
+        self.widgets['username'].addClass('hiddenStructure')
+
+    @button.buttonAndHandler(
+        _(u'label_verify', default=u'Verify'), name='verify'
+    )
+    def action_verify(self, action):
+        data, errors = self.extractData()
+        if not errors:
+            storage = Storage(self.context)
+            item = storage.add(data['email'])
+            self.send_mail(data['email'], item)
+            self.sent = True
+            IStatusMessage(self.request).addStatusMessage(
+                _(u'Verification email has been sent to your email.'), type='info')
